@@ -235,6 +235,8 @@ function parseNotification(httpreq, data) {
 			case 'tag_push':
 				processed = processTag(httpreq, data);
 				break;
+			case 'note':
+				processed = processNote(httpreq, data);
 		}
 	}
 
@@ -259,6 +261,56 @@ function parseNotification(httpreq, data) {
 			return processResponse('slack', response, body);
 		});
 	});
+}
+
+function processNote(httpreq, noteData) {
+	var noteDetails = noteData.object_attributes;
+
+	logger.debug(httpreq, 'PROCCESS: Note');
+
+	return Promise.join(
+		gitlab.getProject(noteDetails.project_id),
+		gitlab.getUserById(noteDetails.author_id),
+		
+		function(project, author) {
+			var projectId = project.id.toString(),
+				projectConfig = config.gitlab.projects[projectId],
+				projectLabelsTracked = !!projectConfig && _.size(projectConfig.labels) > 0;
+
+			var text = util.format(
+				'%s commented on issue <%s|#%s> in %s: %s',
+				author.username,
+				noteDetails.url,
+				noteData.issue.iid,
+				project.path_with_namespace,
+				noteData.issue.title
+			);
+
+			var response = {
+					text: text,
+					attachments: []
+				},
+				mainAttachment = {
+					fallback: util.format(
+						'#%s',
+						noteDetails.note
+					),
+					text: noteDetails.note,
+					color: '#F28A2B',
+					mrkdwn_in: ['text']
+				};
+
+			// Add the main attachment; all action types include some form of this.
+			response.attachments.push(mainAttachment);
+
+			if (projectConfig && projectConfig.channel) {
+				response.channel = projectConfig.channel;
+			}
+
+			return response;
+		}
+	);
+
 }
 
 /**
